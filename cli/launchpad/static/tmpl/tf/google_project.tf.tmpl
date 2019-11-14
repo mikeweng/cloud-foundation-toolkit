@@ -1,0 +1,12 @@
+module "{{ .Id }}" {
+  source                      = "terraform-google-modules/project-factory/google"
+  version                     = "~> 4.0"
+  random_project_id           = "true"
+
+  name                        = "{{ .DisplayName }}"
+  org_id                      = var.organization_id
+  billing_account             = {{ .BillingAccount }}
+  {{ if .FolderParent -}}
+  folder_id                   = "{{ .FolderParent }}"
+  {{- end }}
+}

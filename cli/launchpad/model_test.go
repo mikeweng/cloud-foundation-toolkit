@@ -23,7 +23,7 @@ func testFolder(id string, name string, parentType crdKind, parentId string) *fo
 		folderSpecYAML{
 			Id:          id,
 			DisplayName: name,
-			ParentRef:   parentRefYAML{parentType, parentId},
+			ParentRef:   refYAML{parentType, parentId},
 		},
 	}
 }
@@ -35,8 +35,8 @@ func TestFolderLoad(tt *testing.T) {
 
 	// Folder Group 1-2 under Org directly
 	fG12Org := *fG12
-	fG12Org.Spec.ParentRef.ParentId = "12345678"
-	fG12Org.Spec.ParentRef.ParentType = "Organization"
+	fG12Org.Spec.ParentRef.RefId = "12345678"
+	fG12Org.Spec.ParentRef.RefType = "Organization"
 
 	// Expected relationship
 	nestG12 := *fG12

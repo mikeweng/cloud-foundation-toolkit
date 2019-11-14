@@ -26,7 +26,7 @@ type tfConstruct interface {
 // tfFile represents a single Terraform File.
 type tfFile struct {
 	filename   string // Filename without suffix
-	dirname    string // ParentId directory name
+	dirname    string // RefId directory name
 	constructs []tfConstruct
 }
 
@@ -147,13 +147,13 @@ type tfGoogleFolder struct {
 
 func (t *tfGoogleFolder) tfTemplate() string       { return "launchpad/static/tmpl/tf/google_folder.tf.tmpl" }
 func (t *tfGoogleFolder) tfArguments() interface{} { return *t }
-func newTfGoogleFolder(id string, name string, parentPtr *parentRefYAML) *tfGoogleFolder {
+func newTfGoogleFolder(id string, name string, parentPtr *refYAML) *tfGoogleFolder {
 	parent := ""
-	switch parentPtr.ParentType {
+	switch parentPtr.RefType {
 	case KindOrganization:
 		parent = fmt.Sprintf("\"organizations/${var.organization_id}\"")
 	case KindFolder:
-		parent = fmt.Sprintf("google_folder.%s.name", parentPtr.ParentId)
+		parent = fmt.Sprintf("google_folder.%s.name", parentPtr.RefId)
 	default:
 		log.Fatalln("folder contained in non folder or org")
 	}
@@ -161,5 +161,37 @@ func newTfGoogleFolder(id string, name string, parentPtr *parentRefYAML) *tfGoog
 		Id:          id,
 		DisplayName: name,
 		Parent:      parent,
+	}
+}
+
+// tfGoogleProject represents a single GCP Project in Terraform resource utilizing Project Factory.
+type tfGoogleProject struct {
+	Id             string
+	DisplayName    string
+	FolderParent   string
+	BillingAccount string
+}
+
+func (t *tfGoogleProject) tfTemplate() string {
+	return "launchpad/static/tmpl/tf/google_project.tf.tmpl"
+}
+func (t *tfGoogleProject) tfArguments() interface{} { return *t }
+func newTfGoogleProject(p *projectSpecYAML) *tfGoogleProject {
+	parent := ""
+	if p.ParentRef.RefType == KindFolder {
+		parent = "google_folder.%s.name"
+	}
+	idPrefix := "proj"
+	billingAccount := fmt.Sprintf("\"%s\"", p.BillingAccount)
+	if p.IsTemplate {
+		idPrefix = "proj_tmpl"
+		billingAccount = "var.billing_account"
+
+	}
+	return &tfGoogleProject{
+		Id:             fmt.Sprintf("%s_%s", idPrefix, p.Id),
+		DisplayName:    p.DisplayName,
+		FolderParent:   parent,
+		BillingAccount: billingAccount,
 	}
 }

@@ -21,6 +21,7 @@ const (
 	KindCloudFoundation crdKind      = "CloudFoundation"
 	KindFolder          crdKind      = "Folder"
 	KindOrganization    crdKind      = "Organization"
+	KindProject         crdKind      = "Project"
 	outDm               outputFlavor = "dm"
 	outTf               outputFlavor = "tf"
 )

@@ -35,8 +35,10 @@ type globalState struct {
 	outputFlavor    outputFlavor
 	references      map[string][]reference
 	evaluated       struct {
-		orgId   string
-		folders folders
+		orgId            string
+		folders          folders
+		projects         projects
+		projectTmplYAMLs map[string]*projectSpecYAML
 	}
 }
 
@@ -48,6 +50,8 @@ func (g *globalState) init() {
 	g.references = make(map[string][]reference)
 	g.evaluated.orgId = ""
 	g.evaluated.folders.YAMLs = make(map[string]*folderSpecYAML)
+	g.evaluated.projects.YAMLs = make(map[string]*projectSpecYAML)
+	g.evaluated.projectTmplYAMLs = make(map[string]*projectSpecYAML)
 }
 
 // reference is an explicit reference specified by the CRD.
@@ -118,9 +122,9 @@ func (g *globalState) peek() *stackFrame {
 // Some CRD will specify explicit references, such as which organization/folder current project belongs.
 // In the case where user specifies a resource ID that does not exist, storeReference and checkReferences
 // works in conjunction to help prevent unknown reference error.
-func (g *globalState) storeReference(origin stackFrame, r *parentRefYAML) {
-	refId := string(r.ParentType) + "." + r.ParentId
-	ref := reference{origin.stackType, origin.stackPtr, r.ParentType, r.ParentId}
+func (g *globalState) storeReference(origin stackFrame, r *refYAML) {
+	refId := string(r.RefType) + "." + r.RefId
+	ref := reference{origin.stackType, origin.stackPtr, r.RefType, r.RefId}
 	g.references[refId] = append(g.references[refId], ref)
 }
 
@@ -177,5 +181,23 @@ func (g *globalState) storeFolder(f *folderSpecYAML) error {
 		return errDuplicatedDefinition
 	}
 	gState.evaluated.folders.YAMLs[f.Id] = f
+	return nil
+}
+
+// storeProject takes a parsed project YAML object and stores in for later processing.
+func (g *globalState) storeProject(p *projectSpecYAML) error {
+	if _, ok := gState.evaluated.projects.YAMLs[p.Id]; ok {
+		return errDuplicatedDefinition
+	}
+	gState.evaluated.projects.YAMLs[p.Id] = p
+	return nil
+}
+
+// storeProject takes a parsed project YAML object and stores in for later processing.
+func (g *globalState) storeProjectTemplate(p *projectSpecYAML) error {
+	if _, ok := gState.evaluated.projectTmplYAMLs[p.Id]; ok {
+		return errDuplicatedDefinition
+	}
+	gState.evaluated.projectTmplYAMLs[p.Id] = p
 	return nil
 }

@@ -17,7 +17,7 @@ type directoryOwner interface {
 // directoryProperty defines directory to be created.
 type directoryProperty struct {
 	basename string // Directory name
-	dirname  string // ParentId directory name
+	dirname  string // RefId directory name
 	backup   bool   // Backup directory during re-creation
 }
 
@@ -59,7 +59,11 @@ func withDirectory(comp component) {
 	if !ok {
 		return
 	}
-	fp, backup := do.directoryProperty().path(), do.directoryProperty().backup
+	dir := do.directoryProperty()
+	if dir == nil {
+		return
+	}
+	fp, backup := dir.path(), dir.backup
 
 	if fileInfo, err := os.Stat(fp); err == nil {
 		if !backup {

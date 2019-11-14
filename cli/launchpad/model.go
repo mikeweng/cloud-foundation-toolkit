@@ -63,36 +63,41 @@ func (c *configYAML) UnmarshalYAML(unmarshal func(interface{}) error) (err error
 		o.APIVersion = c.APIVersion
 		o.Kind = c.Kind
 		err = unmarshal(&o)
+	case KindProject:
+		p := projectYAML{}
+		p.APIVersion = c.APIVersion
+		p.Kind = c.Kind
+		err = unmarshal(&p)
 	default:
-		return errors.New(fmt.Sprintf("Kind %s not implemented", c.Kind))
+		return errors.New(fmt.Sprintf("Kind %s not implemented when evaluating config", c.Kind))
 	}
 	return err
 }
 
-// parentRefYAML represents ownership reference inside a CRD.
+// refYAML represents ownership reference inside a CRD.
 //
 // Among different types of CRDs, it is common to have parent-children relationship, ex: Projects belong to
-// a folder, Network belong to a project. parentRefYAML is a relationship identifier between these objects.
+// a folder, Network belong to a project. refYAML is a relationship identifier between these objects.
 //
-// With explicit definition of ParentRef is possible
-type parentRefYAML struct {
-	ParentType crdKind `yaml:"type"`
-	ParentId   string  `yaml:"id"`
+// With explicit definition of refYAML is possible
+type refYAML struct {
+	RefType crdKind `yaml:"type"`
+	RefId   string  `yaml:"id"`
 }
 
-// UnmarshalYAML evaluates parentRefYAML.
+// UnmarshalYAML evaluates refYAML.
 //
 // UnmarshalYAML will have side effect to set organization ID if reference type is Organization. And will store the
 // references as this represents an explicit reference.
-func (p *parentRefYAML) UnmarshalYAML(unmarshal func(interface{}) error) (err error) {
+func (p *refYAML) UnmarshalYAML(unmarshal func(interface{}) error) (err error) {
 	top := gState.peek()
-	type raw parentRefYAML
+	type raw refYAML
 	if err := unmarshal((*raw)(p)); err != nil {
 		return err
 	}
-	switch p.ParentType {
+	switch p.RefType {
 	case KindOrganization:
-		if err := gState.setOrg(p.ParentId); err != nil {
+		if err := gState.setOrg(p.RefId); err != nil {
 			return err
 		}
 	}
@@ -180,7 +185,7 @@ type folderYAML struct {
 type folderSpecYAML struct { // Inner mappings
 	Id          string                 `yaml:"id"`
 	DisplayName string                 `yaml:"displayName"`
-	ParentRef   parentRefYAML          `yaml:"parentRef"`
+	ParentRef   refYAML                `yaml:"parentRef"`
 	Folders     []*folderSpecYAML      `yaml:"folders"`
 	Undefined   map[string]interface{} `yaml:",inline"` // Catch-all for untended behavior1
 }
@@ -211,7 +216,7 @@ func (f *folderSpecYAML) UnmarshalYAML(unmarshal func(interface{}) error) error 
 	//
 	// During evaluation of Y, ParentRef could be undefined, however, stack
 	// will retain owner X reference and infer it as parent
-	if f.ParentRef.ParentId == "" {
+	if f.ParentRef.RefId == "" {
 		if top == nil {
 			// ParentRef is not provided, and there are no ownership mappings
 			log.Printf("warning, cannot infer parents, output will need to be manually filled in")
@@ -219,11 +224,11 @@ func (f *folderSpecYAML) UnmarshalYAML(unmarshal func(interface{}) error) error 
 			switch parent := top.stackPtr.(type) {
 			case *folderSpecYAML:
 				// implicit reference does not need to state since it is guaranteed that parent is resolved
-				f.ParentRef.ParentType = KindFolder
-				f.ParentRef.ParentId = parent.Id
+				f.ParentRef.RefType = KindFolder
+				f.ParentRef.RefId = parent.Id
 			case *orgSpecYAML:
-				f.ParentRef.ParentType = KindOrganization
-				f.ParentRef.ParentId = parent.Id
+				f.ParentRef.RefType = KindOrganization
+				f.ParentRef.RefId = parent.Id
 				if err := gState.setOrg(parent.Id); err != nil {
 					return err
 				}
@@ -266,6 +271,86 @@ func (f *folderSpecYAML) resolveReference(ref reference) error {
 		f.Folders = append(f.Folders, src)
 	default:
 		return errUnsupportedReference
+	}
+	return nil
+}
+
+// ==== Project ====
+
+// projectYAML represents Project CRD.
+type projectYAML struct {
+	commonConfigYAML
+	Spec projectSpecYAML `yaml:"spec"`
+}
+
+// projectSpecYAML defines Project Kind's spec.
+type projectSpecYAML struct { // Inner mappings
+	// Turned into template to allow others to reference
+	IsTemplate  bool    `yaml:"isTemplate"`
+	TemplateRef refYAML `yaml:"templateRef"`
+
+	// Common Settings for Template and Single Projects
+	Id                string   `yaml:"id"`
+	DisplayName       string   `yaml:"displayName"`
+	ParentRef         refYAML  `yaml:"parentRef"`
+	ActiveApis        []string `yaml:"activeApis"`
+	AutoCreateNetwork bool     `yaml:"autoCreateNetwork"`
+	BillingAccount    string   `yaml:"billingAccount"`
+	AdminGroup        string   `yaml:"adminGroup"`
+	AdminRole         string   `yaml:"adminRole"`
+
+	// Unsupported settings
+	Undefined map[string]interface{} `yaml:",inline"` // Catch-all for untended behavior1
+}
+
+// UnmarshalYAML evaluates projectSpecYAML.
+//
+// UnmarshalYAML will have side effect to push Project onto its stack while nested
+// evaluation is ongoing. In addition, storing validated folder onto gState for tracking.
+func (p *projectSpecYAML) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	top := gState.peek()
+	gState.push(KindProject, p)
+	defer gState.popSilent()
+
+	type raw projectSpecYAML
+	if err := unmarshal((*raw)(p)); err != nil {
+		return err
+	}
+
+	if p.ParentRef.RefId == "" { // Implicit Project Location Resolve
+		if top == nil {
+			log.Printf("warning, cannot infer parents, output will need to be manually filled in")
+		} else {
+			switch parent := top.stackPtr.(type) {
+			case *folderSpecYAML:
+				p.ParentRef.RefType = KindFolder
+				p.ParentRef.RefId = parent.Id
+			case *orgSpecYAML:
+				p.ParentRef.RefType = KindOrganization
+				p.ParentRef.RefId = parent.Id
+				if err := gState.setOrg(parent.Id); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// Validate Templates
+	if p.IsTemplate {
+		print()
+	}
+
+	// TODO validate admingroup & adminrole
+	// TODO fetch "defaults" BillingAccount upstream
+
+	if p.IsTemplate {
+		if err := gState.storeProjectTemplate(p); err != nil {
+			log.Println("warning: ignoring duplicated definition of project template", p.Id)
+		}
+	} else{
+		if err := gState.storeProject(p); err != nil {
+			log.Println("warning: ignoring duplicated definition of project", p.Id)
+		}
 	}
 	return nil
 }
